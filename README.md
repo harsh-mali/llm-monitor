@@ -168,12 +168,6 @@ llm-monitor/
 
 ---
 
-## Why I Built This
-
-In production AI systems, you don't just call an LLM — you monitor it. This project implements the observability layer that real MLOps engineers build at companies like Zensar, where I work on data pipelines for NVIDIA's Project GR00T humanoid foundation model. The patterns here — logging, scoring, dashboarding — directly mirror what production ML infrastructure teams do at scale.
-
----
-
 ## Author
 
 **Harsh Mali** — MLOps & Data Infrastructure Engineer  
