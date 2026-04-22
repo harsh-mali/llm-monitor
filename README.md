@@ -1,49 +1,83 @@
 # LLM Monitoring Pipeline
 
-> A production-style MLOps observability tool for monitoring LLM performance in real time.
+> A production-style MLOps observability platform for monitoring LLM performance — with multi-mode querying, multi-dimensional quality scoring, and a live analytics dashboard.
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?style=flat-square&logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
 ![Groq](https://img.shields.io/badge/Groq-LLaMA_3.1-F55036?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 ---
 
 ## What is this?
 
-Most developers call an LLM API, get a response, and have no idea if it was fast, accurate, or consistent. This project solves that by building the **observability layer** that production AI systems need.
+Most developers call an LLM API and move on — they have zero visibility into whether the model is fast, accurate, or consistent. This project builds the **observability layer** that production AI systems need.
 
-Every prompt sent through this tool is:
-- Routed to **Groq's LLaMA 3.1** inference engine
-- Scored for response quality (0.0 → 1.0)
-- Logged to a **Supabase PostgreSQL** database with latency and metadata
-- Displayed on a **live dashboard** with metrics and quality trends over time
+Every prompt is automatically:
+- Routed to **Groq's LLaMA 3.1 8B** for inference
+- Scored across **three quality dimensions** (length, coherence, relevance)
+- Evaluated by an **LLM judge** when quality drops below threshold
+- Logged asynchronously to **Supabase PostgreSQL** without blocking the response
+- Reflected on a **live dashboard** with metric cards, trend charts, and filterable logs
 
-This is not a chatbot. This is the infrastructure that monitors chatbots.
+---
+
+## Three Operating Modes
+
+| Mode | What it does | Key feature |
+|------|-------------|-------------|
+| **Single** | Send one prompt, get scored response | Full quality breakdown with 4 score bars |
+| **Batch** | Paste up to 10 prompts, run all at once | `asyncio.gather()` concurrent execution |
+| **Simulate** | Fire N concurrent users at the same prompt | Latency variance + per-user quality scoring |
 
 ---
 
 ## Architecture
 
 ```
-User Prompt
-    │
-    ▼
-FastAPI Backend (/query)
-    │
-    ├──► Groq API (LLaMA 3.1-8b-instant)
-    │         └── Response + Latency
-    │
-    ├──► Quality Scorer
-    │         └── Score: 0.3 / 0.6 / 0.9 / 1.0
-    │
-    └──► Supabase (PostgreSQL)
-              └── Logs: prompt, response, latency_ms, quality_score
-                            │
-                            ▼
-                    Dashboard (/logs)
-                    Live Metrics + Chart
+THREE ENTRY POINTS:
+  POST /query    → single prompt    → background logging (non-blocking)
+  POST /batch    → N prompts        → asyncio.gather() concurrent execution
+  POST /simulate → 1 prompt × N    → concurrent user load simulation
+
+FLOW (all three modes):
+  Input prompt(s)
+       │
+       ▼
+  ThreadPoolExecutor → call_groq_async()   [Groq API — LLaMA 3.1 8B]
+       │
+       ▼
+  compute_quality()
+       ├── score_length()     [tiered: 0.2 / 0.5 / 0.7 / 0.9 / 1.0]
+       ├── score_coherence()  [sentence count + structure bonus]
+       ├── score_relevance()  [keyword overlap: prompt ↔ response]
+       └── llm_judge()        [only when combined score < 0.7]
+       │
+       ▼
+  BackgroundTasks.add_task() → Supabase insert  [non-blocking]
+       │
+       ▼
+  Return response + quality scores instantly
+
+DASHBOARD:
+  GET /stats → aggregated metrics (total, per-mode, avg scores, flagged count)
+  GET /logs  → last 100 rows, filterable by session_type
+  Charts: quality over time + relevance overlay + latency bar chart
 ```
+
+---
+
+## Quality Scoring Engine
+
+| Dimension | Weight | Method |
+|-----------|--------|--------|
+| **Length** | 30% | Tiered scoring based on character count — proxy for response detail |
+| **Coherence** | 35% | Sentence count + bonus for structured responses (bullets, headers) |
+| **Relevance** | 35% | Keyword overlap between prompt and response |
+| **LLM Judge** | Blended | Groq scores the response 1–10 when combined score < 0.7. Blended 60/40. |
+
+**Quality labels:** Poor (< 0.5) · Okay (0.5–0.7) · Good (0.7–0.9) · Excellent (≥ 0.9)
 
 ---
 
@@ -51,23 +85,13 @@ FastAPI Backend (/query)
 
 | Layer | Technology |
 |-------|-----------|
-| Backend API | Python, FastAPI |
+| Backend API | Python 3.12, FastAPI |
+| Concurrency | asyncio, ThreadPoolExecutor, BackgroundTasks |
 | LLM Inference | Groq API (LLaMA 3.1 8B Instant) |
+| LLM Evaluation | Groq LLM-as-Judge pattern |
 | Database | Supabase (PostgreSQL) |
 | Frontend | HTML, JavaScript, Chart.js |
-| Auth/Secrets | python-dotenv |
-
----
-
-## Features
-
-- **Real-time query interface** — send prompts and see responses instantly
-- **Automatic quality scoring** — every response rated Poor / Okay / Good / Excellent
-- **Latency tracking** — measures response time in milliseconds for every query
-- **Live metrics dashboard** — total queries, average latency, average quality score
-- **Quality trend chart** — visualise how response quality changes over time
-- **Persistent logging** — all queries stored in PostgreSQL via Supabase
-- **Responsive split-panel UI** — query panel left, metrics panel right
+| Secrets | python-dotenv |
 
 ---
 
@@ -75,11 +99,11 @@ FastAPI Backend (/query)
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/harsh-mali/llm-monitor.git
+git clone https://github.com/your-username/llm-monitor.git
 cd llm-monitor
 ```
 
-### 2. Create virtual environment
+### 2. Create virtual environment (Python 3.12)
 ```bash
 py -3.12 -m venv venv
 venv\Scripts\activate      # Windows
@@ -91,20 +115,27 @@ source venv/bin/activate   # Mac/Linux
 pip install -r requirements.txt
 ```
 
-### 4. Set up Supabase
-- Create a project at [supabase.com](https://supabase.com)
-- Run this SQL in the Supabase SQL Editor:
+### 4. Set up Supabase database
+
+Create a project at [supabase.com](https://supabase.com), then run this in the SQL Editor:
 
 ```sql
 CREATE TABLE llm_logs (
-    id            BIGSERIAL PRIMARY KEY,
-    created_at    TIMESTAMP DEFAULT NOW(),
-    prompt        TEXT NOT NULL,
-    response      TEXT NOT NULL,
-    model         TEXT DEFAULT 'llama-3.1-8b-instant',
-    latency_ms    INTEGER,
-    response_len  INTEGER,
-    quality_score FLOAT
+    id              BIGSERIAL PRIMARY KEY,
+    created_at      TIMESTAMP DEFAULT NOW(),
+    prompt          TEXT NOT NULL,
+    response        TEXT NOT NULL,
+    model           TEXT DEFAULT 'llama-3.1-8b-instant',
+    latency_ms      INTEGER,
+    response_len    INTEGER,
+    quality_score   FLOAT,
+    length_score    FLOAT,
+    coherence_score FLOAT,
+    relevance_score FLOAT,
+    llm_score       FLOAT,
+    llm_reason      TEXT,
+    flagged         BOOLEAN DEFAULT FALSE,
+    session_type    TEXT DEFAULT 'single'
 );
 
 ALTER TABLE llm_logs DISABLE ROW LEVEL SECURITY;
@@ -117,9 +148,9 @@ SUPABASE_URL=your_supabase_project_url
 SUPABASE_KEY=your_supabase_anon_key
 ```
 
-Get your Groq API key free at [console.groq.com](https://console.groq.com)
+Get your free Groq API key at [console.groq.com](https://console.groq.com)
 
-### 6. Run the app
+### 6. Run
 ```bash
 uvicorn main:app --reload
 ```
@@ -128,18 +159,16 @@ Open [http://localhost:8000](http://localhost:8000)
 
 ---
 
-## Quality Scoring Logic
+## API Endpoints
 
-Responses are scored based on length as a proxy for detail and completeness:
-
-| Score | Label | Criteria |
-|-------|-------|----------|
-| 0.3 | Poor | Response under 50 characters |
-| 0.6 | Okay | Response 50–200 characters |
-| 0.9 | Good | Response 200–1000 characters |
-| 1.0 | Excellent | Response over 1000 characters |
-
-> **Note:** Length-based scoring is a baseline implementation. Future versions will use semantic similarity and embedding-based evaluation for more accurate quality assessment.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/` | Dashboard UI |
+| `POST` | `/query` | Single prompt — returns response + quality scores |
+| `POST` | `/batch` | Multiple prompts (newline separated, max 10) — concurrent |
+| `POST` | `/simulate` | Simulate N concurrent users on one prompt |
+| `GET` | `/logs` | Last 100 log entries |
+| `GET` | `/stats` | Aggregated metrics for dashboard |
 
 ---
 
@@ -147,8 +176,8 @@ Responses are scored based on length as a proxy for detail and completeness:
 
 ```
 llm-monitor/
-├── main.py          # FastAPI backend — routes, Groq integration, Supabase logging
-├── index.html       # Frontend dashboard — query interface + live metrics
+├── main.py          # FastAPI backend — all routes, scoring engine, concurrency logic
+├── index.html       # Frontend — tabbed UI with single/batch/simulate modes
 ├── .env             # Secret keys (never committed)
 ├── .gitignore       # Excludes .env, venv, __pycache__
 ├── requirements.txt # Python dependencies
@@ -157,18 +186,30 @@ llm-monitor/
 
 ---
 
-## Future Improvements
+## Key Engineering Decisions
 
-- [ ] Semantic quality scoring using embeddings (cosine similarity)
-- [ ] Alert system when quality drops below configurable threshold
-- [ ] Support for multiple LLM providers (OpenAI, Anthropic, Gemini)
-- [ ] Docker containerisation for one-command deployment
-- [ ] Export logs to CSV for offline analysis
-- [ ] Per-model performance comparison dashboard
+**Why `asyncio.gather()` for batch/simulate?**
+Sequential calls would take N × latency time. Concurrent calls take ~1 × latency regardless of N. For 5 prompts at 1.3s each: sequential = 6.5s, concurrent = ~1.3s.
+
+**Why `ThreadPoolExecutor` for Groq calls?**
+Groq's Python SDK is synchronous (blocking). Running it directly in an async route would freeze the entire FastAPI event loop. Wrapping it in `run_in_executor()` runs it in a thread pool while keeping the event loop free.
+
+**Why `BackgroundTasks` for logging?**
+Database writes should never slow down the user-facing response. BackgroundTasks sends the HTTP response first, then runs the Supabase insert — decoupling user latency from database write latency.
+
+**Why LLM judge only below 0.7?**
+Selective evaluation conserves API quota and adds signal where it matters most. An obviously excellent response doesn't need a second opinion. A borderline response does.
 
 ---
 
-## Author
+## Future Improvements
 
-**Harsh Mali** — MLOps & Data Infrastructure Engineer  
-[LinkedIn](https://www.linkedin.com/in/harsh-mali-4448692b6/) | [GitHub](https://github.com/harsh-mali)
+- [ ] Embedding-based semantic relevance scoring (sentence-transformers)
+- [ ] Quality alert system — webhook/notification when score drops below threshold
+- [ ] Multi-model comparison mode — same prompt to multiple providers side-by-side
+- [ ] Docker + docker-compose for one-command deployment
+- [ ] Streaming response support for lower perceived latency
+- [ ] Prompt template library with per-template quality tracking
+- [ ] Export logs to CSV for offline analysis
+
+---
